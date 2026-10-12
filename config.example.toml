@@ -1,0 +1,27 @@
+# Copy to ~/.config/gitea-ocr-review/config.toml and adjust.
+#
+# Every value can also be supplied on the command line, which takes priority.
+
+gitea_url = "https://gitea.example.com"
+
+# Recommended: keep the secret out of this file.
+token_env = "GITEA_TOKEN"
+# token   = "your-access-token"
+
+# Path to the OpenCodeReview executable (default: "ocr").
+ocr_bin = "ocr"
+
+# The verdict is derived from the findings: a finding with severity at or above
+# the lowest severity listed here requests changes; otherwise the PR is
+# approved. List every severity to block on any finding at all.
+reject_on = ["critical", "high"]
+
+# Optional OCR tuning:
+# ocr_timeout = 900                 # seconds
+# ocr_args    = ["--effort", "high"]
+
+# Optional network tuning:
+# timeout   = 30                    # Gitea API timeout in seconds
+# insecure  = false                 # skip TLS verification (self-signed Gitea)
+# no_proxy  = false                 # ignore HTTP(S)_PROXY / ALL_PROXY
+# cache_dir = "/home/me/.cache/gitea-ocr-review"

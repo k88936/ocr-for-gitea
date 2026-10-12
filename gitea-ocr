@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# Launcher for gitea-ocr-review.
+#
+# Uses the uv-managed virtualenv when it exists and falls back to `uv run`
+# otherwise, so the third-party dependencies (httpx, GitPython) are always
+# available no matter which python is first on PATH.
+#
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV="${UV_PROJECT_ENVIRONMENT:-$HERE/.venv}"
+
+if [ -x "$VENV/bin/python" ]; then
+  exec env PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}" \
+    "$VENV/bin/python" -m gitea_ocr_review "$@"
+fi
+
+exec uv run --project "$HERE" python -m gitea_ocr_review "$@"
