@@ -307,6 +307,13 @@ def _load_review_requests(
         number = issue.get("number")
         if owner and name and number is not None:
             requests.add((str(owner), str(name), int(number)))
+    if requests:
+        refs = ", ".join(
+            f"{owner}/{name}#{number}" for owner, name, number in sorted(requests)
+        )
+        log(f"pending review requests ({len(requests)}): {refs}")
+    else:
+        log("pending review requests: none")
     return requests
 
 
@@ -336,28 +343,16 @@ def _collect_watch_work(
             log(f"{owner}/{name}: listing failed: {exc}")
             continue
 
-        log(f"{owner}/{name}: {len(pulls)} {args.pr_state} pull request(s)")
         for pr in pulls:
             index = pr.get("number")
             head_sha = (pr.get("head") or {}).get("sha") or ""
             author = (pr.get("user") or {}).get("login")
             raw_reviewers = pr.get("requested_reviewers") or []
             requested_users = {(u or {}).get("login") for u in raw_reviewers}
-            listed_teams = {
-                (t or {}).get("id")
-                for t in (pr.get("requested_reviewers_teams") or [])
-            }
-            hinted = (
-                me in requested_users
-                or bool(listed_teams & my_team_ids)
-                or any(u is None for u in raw_reviewers)
-            )
 
             if author == me and not args.include_own:
-                log(f"{owner}/{name}#{index}: skip, authored by {me} (cannot self-approve)")
                 continue
             if not args.re_review and state.was_reviewed(owner, name, index, head_sha):
-                log(f"{owner}/{name}#{index}: skip, {head_sha[:12]} already reviewed")
                 continue
 
             if requested is not None:
@@ -377,11 +372,7 @@ def _collect_watch_work(
                 via_team = False
             elif pending_team:
                 via_team = True
-            elif hinted:
-                log(f"{owner}/{name}#{index}: skip, review already submitted")
-                continue
             else:
-                log(f"{owner}/{name}#{index}: skip, no review requested")
                 continue
 
             if args.max_per_cycle and len(work) >= args.max_per_cycle:

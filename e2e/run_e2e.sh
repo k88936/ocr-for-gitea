@@ -162,13 +162,28 @@ echo "$OUT" | grep -qi "approve your own pull" || fail "missing self-approval ex
 ok "self-approval correctly refused"
 
 step "watch mode: one cycle auto-reviews new PR #$PR_WATCH and skips seeded PRs"
+BEFORE_SEEDED="$(
+  for seeded in "$PR_BUGGY" "$PR_CLEAN"; do
+    "$PYTHON" "$ROOT_DIR/e2e/count_reviews.py" --url "$URL" --token "$REVIEWER_TOKEN" \
+      --owner "$OWNER" --repo "$REPO" --pr "$seeded"
+  done | tr '\n' ' '
+)"
 GITEA_TOKEN="$REVIEWER_TOKEN" "$APP" watch "$OWNER/$REPO" --once --concurrency 2 \
   --gitea-url "$URL" --no-proxy --state-file "$WATCH_STATE" \
   --cache-dir "$CACHE_DIR" 2>&1 | tee "$WATCH_LOG" | grep -v -E 'UNDICI|trace-warnings' || true
 "$PYTHON" "$ROOT_DIR/e2e/verify.py" --url "$URL" --token "$REVIEWER_TOKEN" \
   --owner "$OWNER" --repo "$REPO" --pr "$PR_WATCH" \
   --expect REQUEST_CHANGES --min-comments 1
-grep -q "already reviewed" "$WATCH_LOG" || fail "watch did not report skipping seeded PRs"
+AFTER_SEEDED="$(
+  for seeded in "$PR_BUGGY" "$PR_CLEAN"; do
+    "$PYTHON" "$ROOT_DIR/e2e/count_reviews.py" --url "$URL" --token "$REVIEWER_TOKEN" \
+      --owner "$OWNER" --repo "$REPO" --pr "$seeded"
+  done | tr '\n' ' '
+)"
+[ "$BEFORE_SEEDED" = "$AFTER_SEEDED" ] \
+  || fail "watch re-reviewed a seeded PR ($BEFORE_SEEDED -> $AFTER_SEEDED)"
+grep -q "pending review requests" "$WATCH_LOG" \
+  || fail "watch did not log the review-request search result"
 grep -q "concurrency=2" "$WATCH_LOG" || fail "watch did not report --concurrency 2"
 ok "watch detected the new review request and rejected it (thread pool)"
 

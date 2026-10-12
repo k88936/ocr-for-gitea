@@ -298,7 +298,8 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(len(posts), 1)
         self.assertEqual(posts[0]["path"], "/api/v1/repos/o/r/pulls/1/reviews")
         self.assertEqual(posts[0]["body"]["event"], "REQUEST_CHANGES")
-        self.assertIn("skip, authored by reviewbot", out)
+        self.assertIn("pending review requests", out)
+        self.assertIn("o/r#1", out)
         self.assertIn("REQUEST_CHANGES", out)
 
         state = ReviewState(self.state_file)
@@ -314,7 +315,7 @@ class WatchTests(unittest.TestCase):
         code, out = self._run_watch()
         self.assertEqual(code, 0)
         self.assertEqual(self._posts(), [])
-        self.assertIn("already reviewed", out)
+        self.assertIn("pending review requests (1)", out)
 
     def test_re_review_forces_another_post(self):
         self._configure([self._pull(1, "feature1", "alice")])
@@ -337,7 +338,7 @@ class WatchTests(unittest.TestCase):
             [p["path"] for p in self._posts()],
             ["/api/v1/repos/o/r/pulls/1/reviews"],
         )
-        self.assertIn("no review requested", out)
+        self.assertIn("pending review requests (1): o/r#1", out)
 
     def test_skips_review_request_that_was_already_submitted(self):
         # Listed as a requested reviewer, but the REQUEST_REVIEW row is gone
@@ -346,7 +347,7 @@ class WatchTests(unittest.TestCase):
         code, out = self._run_watch()
         self.assertEqual(code, 0)
         self.assertEqual(self._posts(), [])
-        self.assertIn("review already submitted", out)
+        self.assertIn("pending review requests: none", out)
 
     def test_reviews_pr_requested_through_a_team(self):
         self._configure(
@@ -417,7 +418,7 @@ class WatchTests(unittest.TestCase):
         code, out = self._run_watch()
         self.assertEqual(code, 0)
         self.assertEqual(self._posts(), [])
-        self.assertIn("no review requested", out)
+        self.assertIn("pending review requests: none", out)
 
     def test_skips_team_request_that_was_already_submitted(self):
         self._configure(
@@ -437,7 +438,7 @@ class WatchTests(unittest.TestCase):
         code, out = self._run_watch()
         self.assertEqual(code, 0)
         self.assertEqual(self._posts(), [])
-        self.assertIn("review already submitted", out)
+        self.assertIn("pending review requests: none", out)
 
     def test_one_search_call_replaces_per_pull_reviews(self):
         self._configure(
@@ -463,6 +464,7 @@ class WatchTests(unittest.TestCase):
         )
         self.assertEqual(len(self._searches()), 1)
         self.assertEqual(self._review_gets(), [])
+        self.assertIn("pending review requests (1): o/r#1", out)
         self.assertIn(", team)", out)
 
     def test_falls_back_to_per_pull_reviews_when_search_fails(self):
