@@ -2,13 +2,22 @@
 #
 # Launcher for gitea-ocr-review.
 #
-# Uses the uv-managed virtualenv when it exists and falls back to `uv run`
-# otherwise, so the third-party dependencies (httpx, GitPython) are always
-# available no matter which python is first on PATH.
+# Prefers the uv-managed virtualenv next to this script and otherwise lets
+# `uv run` create/sync it, so the dependencies (httpx, GitPython) are always
+# available no matter which python is first on PATH. `PYTHONPATH` is set in
+# both branches so the package is importable straight from this checkout even
+# when the script is started from another directory and the project itself was
+# never installed into the interpreter.
 #
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve this script's directory without relying on external tools.
+SELF="${BASH_SOURCE[0]}"
+case "$SELF" in
+  */*) SELF_DIR="${SELF%/*}" ;;
+  *)   SELF_DIR="." ;;
+esac
+HERE="$(cd "$SELF_DIR" && pwd)"
 VENV="${UV_PROJECT_ENVIRONMENT:-$HERE/.venv}"
 
 if [ -x "$VENV/bin/python" ]; then
@@ -16,4 +25,15 @@ if [ -x "$VENV/bin/python" ]; then
     "$VENV/bin/python" -m gitea_ocr_review "$@"
 fi
 
-exec uv run --project "$HERE" python -m gitea_ocr_review "$@"
+if ! command -v uv >/dev/null 2>&1; then
+  {
+    echo "gitea-ocr: no virtualenv at $VENV and no 'uv' command on PATH."
+    echo "Install the dependencies first, either with:"
+    echo "    cd \"$HERE\" && uv sync"
+    echo "or use a standalone build: scripts/build_binary.sh"
+  } >&2
+  exit 3
+fi
+
+exec env PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}" \
+  uv run --project "$HERE" python -m gitea_ocr_review "$@"
