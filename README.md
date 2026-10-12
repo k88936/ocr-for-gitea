@@ -207,29 +207,28 @@ gitea-ocr review owner/repo#12 --repo-dir ~/src/repo --clone-url https://gitea.e
 
 `watch` keeps querying Gitea for open pull requests and only acts on the ones
 that **requested a review from the token's user** — directly, or through a team
-the user belongs to — and whose request is still open (a `REQUEST_REVIEW` row).
-Gitea leaves stale entries in `requested_reviewers` after a review is
-submitted, so the open request row is the source of truth. It remembers the
-last reviewed head SHA per PR in a state file, so it never reviews the same
-revision twice but **does** re-review a PR automatically when new commits are
-pushed. Every action is logged to **stdout** (timestamped, or JSON lines with
-`--log-json`).
+the user belongs to — and whose request is still open. Gitea leaves stale
+entries in `requested_reviewers` after a review is submitted, so the pending
+state comes from Gitea's own review-request search (see below) rather than from
+that field. It remembers the last reviewed head SHA per PR in a state file, so
+it never reviews the same revision twice but **does** re-review a PR
+automatically when new commits are pushed. Every action is logged to **stdout**
+(timestamped, or JSON lines with `--log-json`).
 
-Team requests are expanded with a single `GET /user/teams` at startup: a PR
-that requests a team containing the token's user is treated exactly like a
-direct request (its log line is marked `, team`). If that call fails, only
-direct requests are honoured.
+Each cycle issues:
 
-Each cycle issues **one** `GET /repos/{owner}/{repo}/pulls` per repository: that
-list already carries the base/head SHAs, the merge base and the clone URL, so
-`watch` never fetches a pull request individually. Gitea's list payload cannot
-be trusted for *team* requests — 1.22 hides the team behind a `null` element in
-`requested_reviewers`, and 1.26 returns `null` for both `requested_reviewers`
-and `requested_reviewers_teams` — so every pull request that you did not author
-and have not already reviewed at its current head gets one lightweight
-`GET /pulls/{index}/reviews`. The open `REQUEST_REVIEW` row (for you, or for a
-team you are in) is the source of truth. With `--concurrency N > 1` the selected
-reviews run on a `ThreadPoolExecutor`; the state file and the per-repository git
+- **one** `GET /repos/issues/search?type=pulls&review_requested=true` for all
+  repositories — Gitea expands team requests to their members, so this single
+  call decides what needs reviewing (the log line is marked `, team` when the
+  request came through a team rather than to you directly);
+- **one** `GET /repos/{owner}/{repo}/pulls` per repository, whose payload
+  already carries the base/head SHAs, the merge base and the clone URL, so
+  `watch` never fetches a pull request individually.
+
+On Gitea versions where the search is unavailable the loop falls back to
+checking the open `REQUEST_REVIEW` row (for you or for a team you are in) per
+candidate pull request. With `--concurrency N > 1` the selected reviews run on a
+`ThreadPoolExecutor`; the state file and the per-repository git
 fetches are locked, so parallel workers cannot duplicate a review or corrupt
 the state.
 

@@ -237,6 +237,34 @@ class GiteaClient:
                 return reviews
             page += 1
 
+    def search_review_requested(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        """Pull requests whose review is requested from the authenticated user.
+
+        A single call across every repository, with Gitea itself expanding team
+        requests to the team's members. This replaces one ``/reviews`` lookup
+        per pull request.
+        """
+
+        issues: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            result = self._request(
+                "GET",
+                "/repos/issues/search",
+                params={
+                    "state": "open",
+                    "type": "pulls",
+                    "review_requested": "true",
+                    "limit": limit,
+                    "page": page,
+                },
+            )
+            batch = list(result or [])
+            issues.extend(batch)
+            if len(batch) < limit:
+                return issues
+            page += 1
+
     def create_review(
         self,
         owner: str,

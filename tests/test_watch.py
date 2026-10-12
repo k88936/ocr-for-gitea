@@ -32,6 +32,13 @@ OCR_JSON = {
     "session_id": "s",
 }
 
+# The single review-request lookup the watch loop is expected to make.
+_SEARCH_KEY = (
+    "GET",
+    "/api/v1/repos/issues/search"
+    "?state=open&type=pulls&review_requested=true&limit=50&page=1",
+)
+
 
 class _State:
     def __init__(self):
@@ -178,7 +185,7 @@ class WatchTests(unittest.TestCase):
             "requested_reviewers_teams": teams,
         }
 
-    def _configure(self, pulls, *, teams=None):
+    def _configure(self, pulls, *, teams=None, search=True):
         self.state.responses.clear()
         self.state.responses[("GET", "/api/v1/user")] = (200, {"login": self.me})
         self.state.responses[
@@ -187,26 +194,42 @@ class WatchTests(unittest.TestCase):
         self.state.responses[
             ("GET", "/api/v1/repos/o/r/pulls?state=open&limit=50&page=1")
         ] = (200, [self._list_view(p) for p in pulls])
+
+        my_team_ids = {t["id"] for t in (teams or [])}
+        matches = [
+            {"number": p["number"], "repository": {"owner": "o", "name": "r"}}
+            for p in pulls
+            if p.get("pending", True)
+            and (self.me in p["requested"] or p.get("pending_team") in my_team_ids)
+        ]
+        self.state.responses[_SEARCH_KEY] = (
+            (200, matches) if search else (500, {"message": "search unavailable"})
+        )
+
+        # The per-pull endpoint is only stubbed when the search is expected to
+        # fail; otherwise a stray /reviews lookup would get an unhelpful empty
+        # payload and the test would fail, proving the search is really used.
+        if not search:
+            for pull in pulls:
+                number = pull["number"]
+                rows: list[dict] = []
+                if pull.get("pending", True):
+                    if pull.get("pending_team") is not None:
+                        rows = [
+                            {"id": 1, "state": "REQUEST_REVIEW",
+                             "team": {"id": pull["pending_team"]}}
+                        ]
+                    elif self.me in pull["requested"]:
+                        rows = [
+                            {"id": 1, "state": "REQUEST_REVIEW",
+                             "user": {"login": self.me}}
+                        ]
+                self.state.responses[
+                    ("GET", f"/api/v1/repos/o/r/pulls/{number}/reviews?limit=50&page=1")
+                ] = (200, rows)
+
         for pull in pulls:
             number = pull["number"]
-            # Only an open request for me or my team yields a REQUEST_REVIEW row.
-            rows: list[dict] = []
-            if pull.get("pending", True):
-                if pull.get("pending_team") is not None:
-                    rows = [
-                        {"id": 1, "state": "REQUEST_REVIEW",
-                         "team": {"id": pull["pending_team"]}}
-                    ]
-                elif self.me in pull["requested"]:
-                    rows = [
-                        {"id": 1, "state": "REQUEST_REVIEW",
-                         "user": {"login": self.me}}
-                    ]
-            self.state.responses[
-                ("GET", f"/api/v1/repos/o/r/pulls/{number}/reviews?limit=50&page=1")
-            ] = (200, rows)
-            # Deliberately no per-PR GET response: any such request would get
-            # an empty payload and fail, proving watch uses the list payload.
             self.state.responses[("POST", f"/api/v1/repos/o/r/pulls/{number}/reviews")] = (
                 200,
                 {"id": 100 + number, "state": "REQUEST_CHANGES", "html_url": "http://x"},
@@ -249,6 +272,19 @@ class WatchTests(unittest.TestCase):
             if r["method"] == "GET"
             and re.fullmatch(r"/api/v1/repos/o/r/pulls/\d+", r["path"])
         ]
+
+    def _review_gets(self):
+        """Per-pull-request /reviews lookups, which the search makes redundant."""
+
+        return [
+            r
+            for r in self.state.requests
+            if r["method"] == "GET"
+            and re.fullmatch(r"/api/v1/repos/o/r/pulls/\d+/reviews\?.*", r["path"])
+        ]
+
+    def _searches(self):
+        return [r for r in self.state.requests if r["path"] == _SEARCH_KEY[1]]
 
     # -- tests -------------------------------------------------------------
 
@@ -402,6 +438,41 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self._posts(), [])
         self.assertIn("review already submitted", out)
+
+    def test_one_search_call_replaces_per_pull_reviews(self):
+        self._configure(
+            [
+                self._pull(
+                    1,
+                    "feature1",
+                    "Fiorina",
+                    requested=(),
+                    teams=[7],
+                    pending_team=7,
+                    null_reviewers=True,
+                ),
+                self._pull(2, "feature2", "alice", requested=()),
+            ],
+            teams=[{"id": 7, "name": "Developers"}],
+        )
+        code, out = self._run_watch()
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            [p["path"] for p in self._posts()],
+            ["/api/v1/repos/o/r/pulls/1/reviews"],
+        )
+        self.assertEqual(len(self._searches()), 1)
+        self.assertEqual(self._review_gets(), [])
+        self.assertIn(", team)", out)
+
+    def test_falls_back_to_per_pull_reviews_when_search_fails(self):
+        # Older Gitea (or a transient error) must not disable watch entirely.
+        self._configure([self._pull(1, "feature1", "alice")], search=False)
+        code, out = self._run_watch()
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self._posts()), 1)
+        self.assertEqual(len(self._review_gets()), 1)
+        self.assertIn("could not search review requests", out)
 
     def test_max_per_cycle_bounds_work(self):
         self._configure(

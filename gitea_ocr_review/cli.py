@@ -182,8 +182,9 @@ def command_watch(args: argparse.Namespace, config: dict[str, Any]) -> int:
                 # A transient failure must not disable team requests forever.
                 my_team_ids = _load_my_team_ids(client, log)
             log(f"--- poll cycle #{cycles} ---")
+            requested = _load_review_requests(client, log)
             work = _collect_watch_work(
-                client, state, me, my_team_ids or set(), args, log, repos
+                client, state, me, my_team_ids or set(), args, log, repos, requested
             )
             reviewed_this_cycle = _run_watch_work(
                 client, settings, state, options, log, work, concurrency
@@ -283,6 +284,32 @@ def _pending_review_request(
     return direct, team
 
 
+def _load_review_requests(
+    client: Any, log: Logger
+) -> set[tuple[str, str, int]] | None:
+    """``(owner, repo, number)`` pull requests awaiting the user's review.
+
+    One Gitea search covers every repository and already expands team requests
+    to their members. ``None`` means the search failed, so the caller should
+    fall back to per-pull checks.
+    """
+
+    try:
+        issues = client.search_review_requested()
+    except AppError as exc:
+        log(f"could not search review requests ({exc}); checking per pull request")
+        return None
+    requests: set[tuple[str, str, int]] = set()
+    for issue in issues:
+        repo = issue.get("repository") or {}
+        owner = repo.get("owner")
+        name = repo.get("name")
+        number = issue.get("number")
+        if owner and name and number is not None:
+            requests.add((str(owner), str(name), int(number)))
+    return requests
+
+
 def _collect_watch_work(
     client: Any,
     state: ReviewState,
@@ -291,15 +318,14 @@ def _collect_watch_work(
     args: argparse.Namespace,
     log: Logger,
     repos: list[tuple[str, str]],
+    requested: set[tuple[str, str, int]] | None = None,
 ) -> list[tuple[str, str, dict[str, Any]]]:
     """List each repository once and return the pending review requests.
 
     The list endpoint already carries everything the review needs — base and
-    head SHAs, the merge base, the clone URL and the requests (direct
-    ``requested_reviewers`` and ``requested_reviewers_teams``) — so no
-    ``GET /pulls/{index}`` is issued per PR. Only pull requests that requested
-    *me*, directly or through a team I belong to, and whose request is still
-    open are returned.
+    head SHAs, the merge base, the clone URL and the requests. Pending review
+    requests come from one ``/repos/issues/search`` call (``requested``), whose
+    absence falls back to an open ``REQUEST_REVIEW`` row per pull request.
     """
 
     work: list[tuple[str, str, dict[str, Any]]] = []
@@ -321,7 +347,11 @@ def _collect_watch_work(
                 (t or {}).get("id")
                 for t in (pr.get("requested_reviewers_teams") or [])
             }
-            hinted = me in requested_users or bool(listed_teams & my_team_ids)
+            hinted = (
+                me in requested_users
+                or bool(listed_teams & my_team_ids)
+                or any(u is None for u in raw_reviewers)
+            )
 
             if author == me and not args.include_own:
                 log(f"{owner}/{name}#{index}: skip, authored by {me} (cannot self-approve)")
@@ -330,13 +360,19 @@ def _collect_watch_work(
                 log(f"{owner}/{name}#{index}: skip, {head_sha[:12]} already reviewed")
                 continue
 
-            # The list payload cannot be trusted for team requests: Gitea 1.26
-            # returns null for both requested_reviewers and
-            # requested_reviewers_teams, and 1.22 hides the team behind a null
-            # element. The open REQUEST_REVIEW row is the only reliable signal.
-            pending_direct, pending_team = _pending_review_request(
-                client, owner, name, index, me, my_team_ids, log
-            )
+            if requested is not None:
+                # One search call already told us; a direct request is listed in
+                # requested_reviewers, otherwise Gitea matched a team of mine.
+                pending = (owner, name, int(index)) in requested
+                pending_direct = pending and me in requested_users
+                pending_team = pending and not pending_direct
+            else:
+                # Fallback: the list payload cannot be trusted for team requests
+                # (1.22 hides the team behind a null element, 1.26 nulls both
+                # fields), so the open REQUEST_REVIEW row is the reliable signal.
+                pending_direct, pending_team = _pending_review_request(
+                    client, owner, name, index, me, my_team_ids, log
+                )
             if pending_direct:
                 via_team = False
             elif pending_team:
