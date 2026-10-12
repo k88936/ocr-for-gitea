@@ -22,8 +22,19 @@ class ApiError(RuntimeError):
         self.message = message
 
 
+# The e2e helpers create and delete data, so they must only ever talk to the
+# disposable local instance. This guard refuses anything else outright.
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
 class Api:
     def __init__(self, url: str, token: str | None = None, *, insecure: bool = True) -> None:
+        host = urllib.parse.urlparse(url).hostname
+        if host not in LOCAL_HOSTS:
+            raise RuntimeError(
+                f"refusing to use {url!r}: the e2e helpers only ever talk to a "
+                "local throwaway Gitea, never a real server"
+            )
         self.base = url.rstrip("/") + "/api/v1"
         self.token = token
         context = ssl.create_default_context()

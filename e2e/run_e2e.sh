@@ -67,6 +67,12 @@ command -v curl   >/dev/null || fail "curl is required"
 command -v ocr    >/dev/null || fail "the ocr CLI is required (npm i -g @alibaba-group/open-code-review)"
 [ -x "$APP" ] || fail "$APP is not executable"
 
+# The harness creates and deletes data; never point it at a real server.
+case "$URL" in
+  http://127.0.0.1:*|http://localhost:*|http://\[::1\]:*) ;;
+  *) fail "refusing to run: e2e needs a local disposable Gitea, got $URL" ;;
+esac
+
 step "clearing cached clones"
 rm -rf "$CACHE_DIR"
 
