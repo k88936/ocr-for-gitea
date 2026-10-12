@@ -12,6 +12,9 @@ dependencies = [
 dev = [
     "pytest>=8",
 ]
+build = [
+    "pyinstaller>=6.10",
+]
 
 [project.scripts]
 gitea-ocr = "gitea_ocr_review.cli:main"

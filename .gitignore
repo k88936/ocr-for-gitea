@@ -9,6 +9,7 @@ venv/
 *.egg-info/
 build/
 dist/
+*.spec
 
 # Editors
 .idea/

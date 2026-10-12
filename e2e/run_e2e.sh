@@ -39,7 +39,7 @@ if [ -z "$PYTHON" ]; then
     PYTHON="$(command -v python3)"
   fi
 fi
-APP="$ROOT_DIR/gitea-ocr"
+APP="${APP:-$ROOT_DIR/gitea-ocr}"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/gitea-ocr-review"
 WATCH_STATE="${WATCH_STATE:-/tmp/gitea-ocr-watch-state.$$.json}"
 WATCH_LOG="${WATCH_LOG:-/tmp/gitea-ocr-watch.$$.log}"

@@ -68,6 +68,22 @@ $ ./gitea-ocr review owner/repo#7
 $ uv run gitea-ocr review owner/repo#7      # equivalent
 ```
 
+### Standalone binary
+
+PyInstaller can freeze the app into a single executable that needs **no Python
+installation**. It still drives the `git` and `ocr` CLIs, so those must be on
+`PATH` at runtime.
+
+```console
+$ ./scripts/build_binary.sh          # -> dist/gitea-ocr (~16 MB, one file)
+$ ./dist/gitea-ocr --version
+$ ./dist/gitea-ocr review owner/repo#7 --gitea-url https://gitea.example.com
+```
+
+The build uses the `build` extra (`pyinstaller>=6.10`, pinned in `uv.lock`).
+The end-to-end suite accepts a binary via `APP`, e.g.
+`APP=$PWD/dist/gitea-ocr ./e2e/run_e2e.sh`.
+
 ---
 
 ## Access-token authentication
