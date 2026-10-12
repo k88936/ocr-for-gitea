@@ -178,8 +178,13 @@ def command_watch(args: argparse.Namespace, config: dict[str, Any]) -> int:
     try:
         while True:
             cycles += 1
+            if my_team_ids is None:
+                # A transient failure must not disable team requests forever.
+                my_team_ids = _load_my_team_ids(client, log)
             log(f"--- poll cycle #{cycles} ---")
-            work = _collect_watch_work(client, state, me, my_team_ids, args, log, repos)
+            work = _collect_watch_work(
+                client, state, me, my_team_ids or set(), args, log, repos
+            )
             reviewed_this_cycle = _run_watch_work(
                 client, settings, state, options, log, work, concurrency
             )
@@ -229,14 +234,18 @@ def _resolve_watch_repos(
     return repos
 
 
-def _load_my_team_ids(client: Any, log: Logger) -> set[int]:
-    """Team ids the authenticated user belongs to, for team review requests."""
+def _load_my_team_ids(client: Any, log: Logger) -> set[int] | None:
+    """Team ids the user belongs to, or ``None`` if the lookup failed.
+
+    ``None`` (rather than an empty set) tells the caller to try again, so a
+    single API hiccup cannot silently bypass every team review request.
+    """
 
     try:
         teams = client.list_my_teams()
     except AppError as exc:
-        log(f"could not list your teams ({exc}); ignoring team review requests")
-        return set()
+        log(f"could not list your teams ({exc}); retrying before the next cycle")
+        return None
     return {t["id"] for t in teams if isinstance(t.get("id"), int)}
 
 

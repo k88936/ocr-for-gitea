@@ -214,11 +214,28 @@ class GiteaClient:
         )
         return list(result or [])
 
-    def list_reviews(self, owner: str, repo: str, index: int) -> list[dict[str, Any]]:
-        result = self._request(
-            "GET", f"/repos/{_quote(owner)}/{_quote(repo)}/pulls/{int(index)}/reviews"
-        )
-        return list(result or [])
+    def list_reviews(
+        self, owner: str, repo: str, index: int, *, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Every review of a pull request, following pagination.
+
+        Pending ``REQUEST_REVIEW`` rows are the newest ones, so stopping at the
+        first page could hide a request and bypass a review.
+        """
+
+        reviews: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            result = self._request(
+                "GET",
+                f"/repos/{_quote(owner)}/{_quote(repo)}/pulls/{int(index)}/reviews",
+                params={"limit": limit, "page": page},
+            )
+            batch = list(result or [])
+            reviews.extend(batch)
+            if len(batch) < limit:
+                return reviews
+            page += 1
 
     def create_review(
         self,

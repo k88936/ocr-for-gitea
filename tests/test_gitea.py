@@ -121,6 +121,29 @@ class GiteaClientTests(unittest.TestCase):
         pulls = client.list_pulls("o", "r", state="open", limit=5)
         self.assertEqual(pulls[0]["number"], 1)
 
+    def test_list_reviews_follows_pagination(self):
+        # A pending REQUEST_REVIEW row is the newest, so it can land on the
+        # second page; list_reviews must not stop after page one.
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/1/reviews?limit=2&page=1")
+        ] = (200, [{"id": 1, "state": "APPROVED"}, {"id": 2, "state": "APPROVED"}])
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/1/reviews?limit=2&page=2")
+        ] = (200, [{"id": 3, "state": "REQUEST_REVIEW", "team": {"id": 7}}])
+        client = GiteaClient(self.base, "secret", no_proxy=True)
+        reviews = client.list_reviews("o", "r", 1, limit=2)
+        self.assertEqual([r["id"] for r in reviews], [1, 2, 3])
+        self.assertEqual(reviews[-1]["state"], "REQUEST_REVIEW")
+
+    def test_list_reviews_stops_after_a_short_page(self):
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/1/reviews?limit=50&page=1")
+        ] = (200, [{"id": 1, "state": "APPROVED"}])
+        client = GiteaClient(self.base, "secret", no_proxy=True)
+        self.assertEqual(len(client.list_reviews("o", "r", 1)), 1)
+        paths = [r["path"] for r in self.state.requests]
+        self.assertEqual(paths, ["/api/v1/repos/o/r/pulls/1/reviews?limit=50&page=1"])
+
 
 if __name__ == "__main__":
     unittest.main()

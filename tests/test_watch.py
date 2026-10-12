@@ -9,7 +9,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from gitea_ocr_review.cli import main
+from gitea_ocr_review.cli import _load_my_team_ids, main
+from gitea_ocr_review.errors import GiteaError
 from gitea_ocr_review.gitrepo import resolve_commit, run_git
 from gitea_ocr_review.state import ReviewState
 
@@ -202,7 +203,7 @@ class WatchTests(unittest.TestCase):
                          "user": {"login": self.me}}
                     ]
             self.state.responses[
-                ("GET", f"/api/v1/repos/o/r/pulls/{number}/reviews")
+                ("GET", f"/api/v1/repos/o/r/pulls/{number}/reviews?limit=50&page=1")
             ] = (200, rows)
             # Deliberately no per-PR GET response: any such request would get
             # an empty payload and fail, proving watch uses the list payload.
@@ -503,6 +504,24 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(sorted(seen), [1, 2, 3])
         self.assertEqual(len(ReviewState(self.state_file).all_entries()), 3)
+
+
+class TeamLookupTests(unittest.TestCase):
+    def test_failure_returns_none_so_the_caller_retries(self):
+        class Client:
+            def list_my_teams(self):
+                raise GiteaError("boom")
+
+        logs = []
+        self.assertIsNone(_load_my_team_ids(Client(), logs.append))
+        self.assertIn("retrying", " ".join(logs))
+
+    def test_success_returns_team_ids(self):
+        class Client:
+            def list_my_teams(self):
+                return [{"id": 2, "name": "Developers"}, {"name": "no-id"}]
+
+        self.assertEqual(_load_my_team_ids(Client(), lambda _m: None), {2})
 
 
 if __name__ == "__main__":
