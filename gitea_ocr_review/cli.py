@@ -312,15 +312,8 @@ def _collect_watch_work(
                 (t or {}).get("id")
                 for t in (pr.get("requested_reviewers_teams") or [])
             }
+            hinted = me in requested_users or bool(listed_teams & my_team_ids)
 
-            direct = me in requested_users
-            # Gitea 1.22 hides team reviewers: a team request shows up as a
-            # null entry in requested_reviewers and no teams list. Newer Gitea
-            # lists the requested team ids directly.
-            unknown_team = any(u is None for u in raw_reviewers)
-            if not direct and not (listed_teams & my_team_ids) and not unknown_team:
-                log(f"{owner}/{name}#{index}: skip, no review requested")
-                continue
             if author == me and not args.include_own:
                 log(f"{owner}/{name}#{index}: skip, authored by {me} (cannot self-approve)")
                 continue
@@ -328,14 +321,18 @@ def _collect_watch_work(
                 log(f"{owner}/{name}#{index}: skip, {head_sha[:12]} already reviewed")
                 continue
 
+            # The list payload cannot be trusted for team requests: Gitea 1.26
+            # returns null for both requested_reviewers and
+            # requested_reviewers_teams, and 1.22 hides the team behind a null
+            # element. The open REQUEST_REVIEW row is the only reliable signal.
             pending_direct, pending_team = _pending_review_request(
                 client, owner, name, index, me, my_team_ids, log
             )
-            if direct and pending_direct:
+            if pending_direct:
                 via_team = False
             elif pending_team:
                 via_team = True
-            elif direct or (listed_teams & my_team_ids):
+            elif hinted:
                 log(f"{owner}/{name}#{index}: skip, review already submitted")
                 continue
             else:

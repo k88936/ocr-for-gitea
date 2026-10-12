@@ -221,13 +221,17 @@ direct request (its log line is marked `, team`). If that call fails, only
 direct requests are honoured.
 
 Each cycle issues **one** `GET /repos/{owner}/{repo}/pulls` per repository: that
-list already carries the base/head SHAs, the merge base, the clone URL and
-`requested_reviewers`, so `watch` never fetches a pull request individually.
-Only pull requests that requested *you* get a follow-up
-`GET /pulls/{index}/reviews` to confirm the request is still open. With
-`--concurrency N > 1` the selected reviews run on a `ThreadPoolExecutor`; the
-state file and the per-repository git fetches are locked, so parallel workers
-cannot duplicate a review or corrupt the state.
+list already carries the base/head SHAs, the merge base and the clone URL, so
+`watch` never fetches a pull request individually. Gitea's list payload cannot
+be trusted for *team* requests — 1.22 hides the team behind a `null` element in
+`requested_reviewers`, and 1.26 returns `null` for both `requested_reviewers`
+and `requested_reviewers_teams` — so every pull request that you did not author
+and have not already reviewed at its current head gets one lightweight
+`GET /pulls/{index}/reviews`. The open `REQUEST_REVIEW` row (for you, or for a
+team you are in) is the source of truth. With `--concurrency N > 1` the selected
+reviews run on a `ThreadPoolExecutor`; the state file and the per-repository git
+fetches are locked, so parallel workers cannot duplicate a review or corrupt
+the state.
 
 ```
 gitea-ocr watch owner/repo --interval 60

@@ -135,6 +135,7 @@ class WatchTests(unittest.TestCase):
         teams=None,
         pending_team=None,
         team_marker=False,
+        null_reviewers=False,
     ):
         return {
             "number": number,
@@ -146,6 +147,7 @@ class WatchTests(unittest.TestCase):
             "teams": list(teams or []),
             "pending_team": pending_team,
             "team_marker": team_marker,
+            "null_reviewers": null_reviewers,
             "title": f"PR {number}",
         }
 
@@ -157,6 +159,10 @@ class WatchTests(unittest.TestCase):
         if pull.get("team_marker"):
             # Gitea 1.22 hides a team request as a null reviewer, with no teams.
             reviewers.append(None)
+            teams = None
+        if pull.get("null_reviewers"):
+            # Gitea 1.26 returns null for both fields on a team-only request.
+            reviewers = None
             teams = None
         return {
             "number": pull["number"],
@@ -182,15 +188,22 @@ class WatchTests(unittest.TestCase):
         ] = (200, [self._list_view(p) for p in pulls])
         for pull in pulls:
             number = pull["number"]
-            review_state = "REQUEST_REVIEW" if pull.get("pending", True) else "APPROVED"
-            request_row: dict = {"id": 1, "state": review_state}
-            if pull.get("pending_team") is not None:
-                request_row["team"] = {"id": pull["pending_team"]}
-            else:
-                request_row["user"] = {"login": self.me}
+            # Only an open request for me or my team yields a REQUEST_REVIEW row.
+            rows: list[dict] = []
+            if pull.get("pending", True):
+                if pull.get("pending_team") is not None:
+                    rows = [
+                        {"id": 1, "state": "REQUEST_REVIEW",
+                         "team": {"id": pull["pending_team"]}}
+                    ]
+                elif self.me in pull["requested"]:
+                    rows = [
+                        {"id": 1, "state": "REQUEST_REVIEW",
+                         "user": {"login": self.me}}
+                    ]
             self.state.responses[
                 ("GET", f"/api/v1/repos/o/r/pulls/{number}/reviews")
-            ] = (200, [request_row])
+            ] = (200, rows)
             # Deliberately no per-PR GET response: any such request would get
             # an empty payload and fail, proving watch uses the list payload.
             self.state.responses[("POST", f"/api/v1/repos/o/r/pulls/{number}/reviews")] = (
@@ -333,6 +346,30 @@ class WatchTests(unittest.TestCase):
         code, out = self._run_watch()
         self.assertEqual(code, 0)
         self.assertEqual(len(self._posts()), 1)
+        self.assertIn(", team)", out)
+
+    def test_reviews_team_request_when_list_nulls_both_fields(self):
+        # Gitea 1.26 regression: a team-only request yields null for both
+        # requested_reviewers and requested_reviewers_teams, so /reviews is the
+        # only way to see the Developers team request.
+        self._configure(
+            [
+                self._pull(
+                    1,
+                    "feature1",
+                    "Fiorina",
+                    requested=(),
+                    teams=[7],
+                    pending_team=7,
+                    null_reviewers=True,
+                )
+            ],
+            teams=[{"id": 7, "name": "Developers"}],
+        )
+        code, out = self._run_watch()
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self._posts()), 1)
+        self.assertIn("review requested by Fiorina", out)
         self.assertIn(", team)", out)
 
     def test_skips_team_request_for_a_team_i_am_not_in(self):
