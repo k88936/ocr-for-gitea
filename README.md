@@ -302,8 +302,9 @@ Notes:
   the PR opened are not reviewed.
 * Fork pull requests work: if the head commit is missing, the app fetches
   `refs/pull/<n>/head`, which Gitea exposes for every PR.
-* Inline comments carry OpenCodeReview's text and its suggested change; we add
-  no severity labels or prose of our own. They use Gitea's `new_position`
+* Inline comments are led by OpenCodeReview's severity (`**[critical]** …`),
+  followed by its text and its suggested change; we add no prose of our own.
+  They use Gitea's `new_position`
   (1-based line in the new file); findings on files absent from the head commit
   cannot be anchored and are dropped.
 * No summary comment is posted on the pull request. Gitea refuses a

@@ -63,8 +63,14 @@ class InlineCommentTests(unittest.TestCase):
         self.assertEqual(comments[0]["path"], "calc.py")
         self.assertEqual(comments[0]["new_position"], 2)
         self.assertEqual(comments[0]["old_position"], 0)
+        self.assertIn("**[critical]**", comments[0]["body"])
         self.assertIn("return a + b", comments[0]["body"])
         self.assertIn("Suggested change", comments[0]["body"])
+
+    def test_severity_is_shown_with_ocr_text(self):
+        comments = build_inline_comments([finding(severity="high")])
+        self.assertTrue(comments[0]["body"].startswith("**[high]** "))
+        self.assertIn("add() subtracts", comments[0]["body"])
 
     def test_filters_files_not_in_head(self):
         comments = build_inline_comments([finding()], head_paths=["other.py"])

@@ -216,20 +216,24 @@ def build_inline_comments(
         if not line or line <= 0:
             continue
 
-        # OpenCodeReview's text, then its suggested change. No extra labels.
+        # Severity, then OpenCodeReview's text, then its suggested change.
+        text = finding.content.strip()
+        suggestion = finding.suggestion_code
+        if not text and not suggestion.strip():
+            continue
+        severity = normalize_severity(finding.severity)
         body_lines: list[str] = []
-        if finding.content.strip():
-            body_lines.append(finding.content.strip())
-        if finding.suggestion_code.strip():
-            if body_lines:
-                body_lines.append("")
+        if text:
+            body_lines.append(f"**[{severity}]** {text}")
+        else:
+            body_lines.append(f"**[{severity}]**")
+        if suggestion.strip():
+            body_lines.append("")
             body_lines.append("Suggested change:")
             body_lines.append("")
             body_lines.append("```")
-            body_lines.append(finding.suggestion_code.rstrip())
+            body_lines.append(suggestion.rstrip())
             body_lines.append("```")
-        if not body_lines:
-            continue
         comments.append(
             {
                 "path": finding.path,
