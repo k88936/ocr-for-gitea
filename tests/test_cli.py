@@ -256,14 +256,18 @@ class FullPipelineTests(unittest.TestCase):
         inline = posted[0]["body"]["comments"][0]["body"]
         self.assertIn("add() subtracts", inline)
         self.assertIn("Suggested change", inline)
+        # The meme belongs on the PR-level review comment, not on every
+        # inline comment attached to a changed line.
+        self.assertNotIn("deepseek-whale-girl", inline)
+        self.assertEqual(posted[0]["body"]["commit_id"], self.head_sha)
+        # Gitea requires a body for request-changes; it is the short reason and
+        # carries the single meme for this review.
+        self.assertIn("finding(s)", posted[0]["body"]["body"])
         self.assertIn(
             "![](https://github.com/TreapGoGo/deepseek-whale-girl/blob/main/"
             "site/assets/gallery/meme-",
-            inline,
+            posted[0]["body"]["body"],
         )
-        self.assertEqual(posted[0]["body"]["commit_id"], self.head_sha)
-        # Gitea requires a body for request-changes; it is the short reason.
-        self.assertIn("finding(s)", posted[0]["body"]["body"])
         summary = json.loads(buf.getvalue())
         self.assertEqual(summary["event"], "REQUEST_CHANGES")
 

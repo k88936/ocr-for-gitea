@@ -9,8 +9,8 @@ into an automated **Gitea pull-request gate**:
    passing the PR's discussion as `--background-file`.
 3. Turn the JSON findings into a verdict using a configurable policy.
 4. **Post** the verdict back to Gitea as an `APPROVED` or `REQUEST_CHANGES`
-   review carrying code-side inline comments (no summary comment), each with a
-   random whale meme.
+   review carrying code-side inline comments (no summary comment), with one
+   random whale meme on the PR-level comment.
 
 Authentication uses a **Gitea access token**. HTTP is handled by
 [`httpx`](https://www.python-httpx.org/) and local git operations by
@@ -308,9 +308,7 @@ Notes:
 * Fork pull requests work: if the head commit is missing, the app fetches
   `refs/pull/<n>/head`, which Gitea exposes for every PR.
 * Inline comments are led by OpenCodeReview's severity (`**[critical]** …`),
-  followed by its text and its suggested change, then one random image from the
-  [deepseek-whale-girl gallery](https://github.com/TreapGoGo/deepseek-whale-girl)
-  (`meme-01.webp` … `meme-40.webp`, chosen per review). They use Gitea's
+  followed by its text and its suggested change. They use Gitea's
   `new_position` (1-based line in the new file); findings on files absent from
   the head commit cannot be anchored and are dropped.
 * Before running OCR, the app fetches the PR description plus all conversation
@@ -326,8 +324,12 @@ Notes:
   are sent — the newest comments survive a long discussion.
 * No summary comment is posted on the pull request. Gitea refuses a
   `REQUEST_CHANGES` review without a body, so that one carries the short reason
-  (e.g. `1 finding(s) at or above severity critical/high`); approvals are
-  silent. `--no-inline-comments` posts the rendered summary instead.
+  (e.g. `1 finding(s) at or above severity critical/high`) followed by one random
+  image from the
+  [deepseek-whale-girl gallery](https://github.com/TreapGoGo/deepseek-whale-girl)
+  (`meme-01.webp` … `meme-40.webp`, chosen per review); approvals are silent.
+  `--no-inline-comments` posts the rendered summary instead, which also ends
+  with the meme. The meme is never repeated on individual inline comments.
 * `watch` reuses this exact pipeline once per new head commit. It persists the
   reviewed head SHA per PR, so it is safe to restart and never double-reviews a
   revision; `--re-review` forces a fresh pass and new commits are picked up

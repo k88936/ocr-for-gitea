@@ -89,11 +89,11 @@ class InlineCommentTests(unittest.TestCase):
         comments = build_inline_comments(findings, max_comments=3)
         self.assertEqual(len(comments), 3)
 
-    def test_footer_is_appended_to_every_comment(self):
+    def test_meme_is_not_repeated_on_inline_comments(self):
         findings = [finding(path="a.py"), finding(path="b.py")]
-        comments = build_inline_comments(findings, footer="![](meme)")
+        comments = build_inline_comments(findings)
         for comment in comments:
-            self.assertTrue(comment["body"].endswith("\n\n![](meme)"))
+            self.assertNotIn("deepseek-whale-girl", comment["body"])
 
 
 class MemeTests(unittest.TestCase):

@@ -11,7 +11,7 @@ from .ocr_runner import Finding
 EVENT_APPROVE = "APPROVED"
 EVENT_REQUEST_CHANGES = "REQUEST_CHANGES"
 
-# A random whale meme, appended to every posted comment.
+# A random whale meme, appended to the PR-level review comment.
 MEME_COUNT = 40
 MEME_URL_TEMPLATE = (
     "https://github.com/TreapGoGo/deepseek-whale-girl/blob/main/"
@@ -216,7 +216,6 @@ def build_inline_comments(
     *,
     max_comments: int = 25,
     head_paths: Iterable[str] | None = None,
-    footer: str | None = None,
 ) -> list[dict[str, Any]]:
     """Map OCR findings to Gitea ``CreatePullReviewComment`` payloads.
 
@@ -255,9 +254,6 @@ def build_inline_comments(
             body_lines.append("```")
             body_lines.append(suggestion.rstrip())
             body_lines.append("```")
-        if footer:
-            body_lines.append("")
-            body_lines.append(footer)
         comments.append(
             {
                 "path": finding.path,

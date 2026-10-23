@@ -196,7 +196,6 @@ def perform_review(
             result.findings,
             max_comments=options.max_inline_comments,
             head_paths=head_paths,
-            footer=meme,
         )
 
     body = build_review_body(
@@ -226,10 +225,12 @@ def perform_review(
         # Code-side only by default: no summary comment on the pull request.
         # Gitea refuses REQUEST_CHANGES without a body, so use the short reason
         # there; --no-inline-comments explicitly asks for the full summary.
+        # The whale meme rides on that PR-level comment, never on the inline
+        # comments attached to individual diff lines.
         if options.no_inline_comments:
             post_body = body
         elif event == EVENT_REQUEST_CHANGES:
-            post_body = reason
+            post_body = f"{reason}\n\n{meme}"
         else:
             post_body = ""
         review = post_review(
