@@ -135,6 +135,56 @@ class GiteaClientTests(unittest.TestCase):
         self.assertEqual([r["id"] for r in reviews], [1, 2, 3])
         self.assertEqual(reviews[-1]["state"], "REQUEST_REVIEW")
 
+    def test_list_issue_comments(self):
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/issues/1/comments?limit=50&page=1")
+        ] = (200, [{"id": 1, "body": "hello"}])
+        client = GiteaClient(self.base, "secret", no_proxy=True)
+        comments = client.list_issue_comments("o", "r", 1)
+        self.assertEqual(comments[0]["body"], "hello")
+
+    def test_list_review_comments(self):
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/1/comments?limit=50&page=1")
+        ] = (200, [{"id": 2, "body": "line note", "path": "a.py", "line": 3}])
+        client = GiteaClient(self.base, "secret", no_proxy=True)
+        comments = client.list_review_comments("o", "r", 1)
+        self.assertEqual(comments[0]["path"], "a.py")
+
+    def test_list_review_comments_falls_back_to_reviews(self):
+        # Gitea returns 404 for /pulls/{n}/comments and only serves line
+        # comments per review, so the client must walk the reviews.
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/1/comments?limit=50&page=1")
+        ] = (404, {"message": "not found"})
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/1/reviews?limit=50&page=1")
+        ] = (200, [{"id": 11}, {"id": 12}])
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/1/reviews/11/comments?limit=50&page=1")
+        ] = (200, [{"id": 2, "body": "line note", "path": "a.py"}])
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/1/reviews/12/comments?limit=50&page=1")
+        ] = (200, [])
+        client = GiteaClient(self.base, "secret", no_proxy=True)
+        comments = client.list_review_comments("o", "r", 1)
+        self.assertEqual([c["id"] for c in comments], [2])
+        paths = [r["path"] for r in self.state.requests]
+        self.assertIn(
+            "/api/v1/repos/o/r/pulls/1/reviews/11/comments?limit=50&page=1", paths
+        )
+
+    def test_comment_lists_follow_pagination(self):
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/issues/1/comments?limit=2&page=1")
+        ] = (200, [{"id": 1}, {"id": 2}])
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/issues/1/comments?limit=2&page=2")
+        ] = (200, [{"id": 3}])
+        client = GiteaClient(self.base, "secret", no_proxy=True)
+        comments = client.list_issue_comments("o", "r", 1, limit=2)
+        self.assertEqual([c["id"] for c in comments], [1, 2, 3])
+
     def test_list_reviews_stops_after_a_short_page(self):
         self.state.responses[
             ("GET", "/api/v1/repos/o/r/pulls/1/reviews?limit=50&page=1")

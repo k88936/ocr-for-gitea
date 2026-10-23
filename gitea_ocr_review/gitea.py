@@ -237,6 +237,72 @@ class GiteaClient:
                 return reviews
             page += 1
 
+    def list_issue_comments(
+        self, owner: str, repo: str, index: int, *, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Conversation comments on a pull request (``/issues/{n}/comments``)."""
+
+        comments: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            result = self._request(
+                "GET",
+                f"/repos/{_quote(owner)}/{_quote(repo)}/issues/{int(index)}/comments",
+                params={"limit": limit, "page": page},
+            )
+            batch = list(result or [])
+            comments.extend(batch)
+            if len(batch) < limit:
+                return comments
+            page += 1
+
+    def list_review_comments(
+        self, owner: str, repo: str, index: int, *, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Line comments left by pull-request reviews.
+
+        GitHub serves them all at ``/pulls/{n}/comments``; Gitea returns 404
+        there (verified on 1.26), so fall back to walking every review and its
+        per-review comment list instead.
+        """
+
+        comments: list[dict[str, Any]] = []
+        try:
+            page = 1
+            while True:
+                result = self._request(
+                    "GET",
+                    f"/repos/{_quote(owner)}/{_quote(repo)}/pulls/{int(index)}/comments",
+                    params={"limit": limit, "page": page},
+                )
+                batch = list(result or [])
+                comments.extend(batch)
+                if len(batch) < limit:
+                    return comments
+                page += 1
+        except GiteaError as exc:
+            if exc.status != 404:
+                raise
+
+        for review in self.list_reviews(owner, repo, index, limit=limit):
+            review_id = review.get("id")
+            if not review_id:
+                continue
+            page = 1
+            while True:
+                result = self._request(
+                    "GET",
+                    f"/repos/{_quote(owner)}/{_quote(repo)}/pulls/{int(index)}"
+                    f"/reviews/{int(review_id)}/comments",
+                    params={"limit": limit, "page": page},
+                )
+                batch = list(result or [])
+                comments.extend(batch)
+                if len(batch) < limit:
+                    break
+                page += 1
+        return comments
+
     def search_review_requested(self, *, limit: int = 50) -> list[dict[str, Any]]:
         """Pull requests whose review is requested from the authenticated user.
 

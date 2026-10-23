@@ -151,12 +151,18 @@ class FullPipelineTests(unittest.TestCase):
         return repo
 
     def _fake_ocr(self) -> Path:
+        self.ocr_argv = self.tmp_path / "ocr-argv.json"
+        self.ocr_background = self.tmp_path / "ocr-background.md"
         script = self.tmp_path / "fake_ocr"
         script.write_text(
             "#!/usr/bin/env python3\n"
-            "import sys\n"
+            "import json, shutil, sys\n"
             "out = sys.argv[sys.argv.index('-o') + 1]\n"
             f"open(out, 'w').write({json.dumps(FAKE_OCR_JSON)!r})\n"
+            f"open({str(self.ocr_argv)!r}, 'w').write(json.dumps(sys.argv))\n"
+            "if '--background-file' in sys.argv:\n"
+            "    index = sys.argv.index('--background-file')\n"
+            f"    shutil.copyfile(sys.argv[index + 1], {str(self.ocr_background)!r})\n"
         )
         script.chmod(0o755)
         return script
@@ -183,6 +189,43 @@ class FullPipelineTests(unittest.TestCase):
             200,
             {"id": 42, "state": "REQUEST_CHANGES", "html_url": "http://x/42"},
         )
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/issues/1/comments?limit=50&page=1")
+        ] = (
+            200,
+            [
+                {
+                    "body": "please keep add() adding",
+                    "user": {"login": "bob"},
+                    "created_at": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
+        # Gitea has no global review-comment endpoint, so 404 here must fall
+        # back to listing each review's comments.
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/1/comments?limit=50&page=1")
+        ] = (404, {"message": "not found"})
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/1/reviews?limit=50&page=1")
+        ] = (200, [{"id": 5, "state": "COMMENT"}, {"id": 6, "state": "APPROVED"}])
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/1/reviews/5/comments?limit=50&page=1")
+        ] = (
+            200,
+            [
+                {
+                    "body": "this subtraction is wrong",
+                    "user": {"login": "carol"},
+                    "created_at": "2026-01-02T00:00:00Z",
+                    "path": "calc.py",
+                    "line": 2,
+                }
+            ],
+        )
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/1/reviews/6/comments?limit=50&page=1")
+        ] = (200, [])
 
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
@@ -213,11 +256,24 @@ class FullPipelineTests(unittest.TestCase):
         inline = posted[0]["body"]["comments"][0]["body"]
         self.assertIn("add() subtracts", inline)
         self.assertIn("Suggested change", inline)
+        self.assertIn(
+            "![](https://github.com/TreapGoGo/deepseek-whale-girl/blob/main/"
+            "site/assets/gallery/meme-",
+            inline,
+        )
         self.assertEqual(posted[0]["body"]["commit_id"], self.head_sha)
         # Gitea requires a body for request-changes; it is the short reason.
         self.assertIn("finding(s)", posted[0]["body"]["body"])
         summary = json.loads(buf.getvalue())
         self.assertEqual(summary["event"], "REQUEST_CHANGES")
+
+        # The whole conversation is handed to ocr as a Markdown background.
+        argv = json.loads(self.ocr_argv.read_text())
+        background_index = argv.index("--background-file")
+        self.assertTrue(argv[background_index + 1].endswith(".md"))
+        background = self.ocr_background.read_text()
+        self.assertIn("please keep add() adding", background)
+        self.assertIn("this subtraction is wrong", background)
 
     def test_dry_run_posts_nothing(self):
         self.state.responses[("GET", "/api/v1/repos/o/r/pulls/2")] = (
@@ -231,6 +287,13 @@ class FullPipelineTests(unittest.TestCase):
                 "head": {"sha": self.head_sha},
             },
         )
+        # The discussion is optional context: a failed lookup must not block review.
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/issues/2/comments?limit=50&page=1")
+        ] = (500, {"message": "forbidden"})
+        self.state.responses[
+            ("GET", "/api/v1/repos/o/r/pulls/2/comments?limit=50&page=1")
+        ] = (500, {"message": "forbidden"})
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             code = main(

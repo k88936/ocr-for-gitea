@@ -1,13 +1,17 @@
+import random
 import unittest
 
 from gitea_ocr_review.ocr_runner import Finding
 from gitea_ocr_review.policy import (
     EVENT_APPROVE,
     EVENT_REQUEST_CHANGES,
+    MEME_COUNT,
+    MEME_URL_TEMPLATE,
     build_inline_comments,
     build_review_body,
     decide_event,
     parse_reject_on,
+    random_meme,
     summarize_findings,
 )
 
@@ -85,6 +89,33 @@ class InlineCommentTests(unittest.TestCase):
         comments = build_inline_comments(findings, max_comments=3)
         self.assertEqual(len(comments), 3)
 
+    def test_footer_is_appended_to_every_comment(self):
+        findings = [finding(path="a.py"), finding(path="b.py")]
+        comments = build_inline_comments(findings, footer="![](meme)")
+        for comment in comments:
+            self.assertTrue(comment["body"].endswith("\n\n![](meme)"))
+
+
+class MemeTests(unittest.TestCase):
+    def test_meme_urls_span_the_gallery(self):
+        self.assertEqual(MEME_COUNT, 40)
+        for number in (1, 7, 40):
+            expected = (
+                "https://github.com/TreapGoGo/deepseek-whale-girl/blob/main/"
+                f"site/assets/gallery/meme-{number:02d}.webp?raw=true"
+            )
+            self.assertEqual(MEME_URL_TEMPLATE.format(number=number), expected)
+
+    def test_random_meme_is_a_markdown_image(self):
+        for seed in range(20):
+            meme = random_meme(random.Random(seed))
+            self.assertRegex(
+                meme,
+                r"^!\[\]\(https://github\.com/TreapGoGo/deepseek-whale-girl/"
+                r"blob/main/site/assets/gallery/meme-(0[1-9]|[1-3][0-9]|40)"
+                r"\.webp\?raw=true\)$",
+            )
+
 
 class ReviewBodyTests(unittest.TestCase):
     def test_body_contains_decision_and_findings(self):
@@ -104,6 +135,18 @@ class ReviewBodyTests(unittest.TestCase):
         self.assertIn("calc.py:2", body)
         self.assertIn("company/deepseek", body)
         self.assertIn("return a + b", body)
+
+    def test_body_appends_footer(self):
+        body = build_review_body(
+            pr={"number": 1, "title": "Change add"},
+            event=EVENT_APPROVE,
+            findings=[],
+            repo="o/r",
+            base="a" * 40,
+            head="b" * 40,
+            footer="![](meme)",
+        )
+        self.assertTrue(body.endswith("\n\n![](meme)"))
 
     def test_body_clean_pr(self):
         body = build_review_body(

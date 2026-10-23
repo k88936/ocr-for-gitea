@@ -56,6 +56,21 @@ class ParseTests(unittest.TestCase):
         self.assertIn("head", cmd)
         self.assertIn("json", cmd)
         self.assertEqual(cmd[-2:], ["--effort", "high"])
+        self.assertNotIn("--background-file", cmd)
+
+    def test_build_command_adds_background_file(self):
+        cmd = build_command(
+            "ocr",
+            Path("/repo"),
+            "base",
+            "head",
+            Path("/out.json"),
+            ["--effort", "high"],
+            background_file=Path("/tmp/background.md"),
+        )
+        index = cmd.index("--background-file")
+        self.assertEqual(cmd[index + 1], "/tmp/background.md")
+        self.assertEqual(cmd[-2:], ["--effort", "high"])
 
 
 class RunOcrTests(unittest.TestCase):
@@ -78,6 +93,27 @@ class RunOcrTests(unittest.TestCase):
             result = run_ocr(tmp_path, "a" * 40, "b" * 40, ocr_bin=str(script))
             self.assertEqual(len(result.findings), 1)
             self.assertEqual(result.status, "complete")
+
+    def test_run_ocr_passes_background_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            seen = tmp_path / "seen.md"
+            script = self._write_script(
+                tmp_path,
+                "import shutil, sys\n"
+                "out = sys.argv[sys.argv.index('-o') + 1]\n"
+                f"open(out, 'w').write({json.dumps(SAMPLE)!r})\n"
+                "index = sys.argv.index('--background-file')\n"
+                f"shutil.copyfile(sys.argv[index + 1], {str(seen)!r})\n",
+            )
+            run_ocr(
+                tmp_path,
+                "a" * 40,
+                "b" * 40,
+                ocr_bin=str(script),
+                background="# Discussion\n\nuse add()\n",
+            )
+            self.assertEqual(seen.read_text(), "# Discussion\n\nuse add()\n")
 
     def test_run_ocr_failure_raises(self):
         with tempfile.TemporaryDirectory() as tmp:

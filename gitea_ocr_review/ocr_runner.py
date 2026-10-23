@@ -98,8 +98,10 @@ def build_command(
     head: str,
     output_path: Path,
     extra_args: Iterable[str] = (),
+    *,
+    background_file: Path | None = None,
 ) -> list[str]:
-    return [
+    command = [
         ocr_bin,
         "review",
         "--repo",
@@ -114,8 +116,11 @@ def build_command(
         "agent",
         "-o",
         str(output_path),
-        *[str(a) for a in extra_args],
     ]
+    if background_file is not None:
+        command.extend(["--background-file", str(background_file)])
+    command.extend(str(a) for a in extra_args)
+    return command
 
 
 def run_ocr(
@@ -126,9 +131,13 @@ def run_ocr(
     ocr_bin: str = "ocr",
     extra_args: Iterable[str] = (),
     timeout: float | None = None,
+    background: str | None = None,
     log: Logger = lambda _msg: None,
 ) -> ReviewResult:
     """Execute ``ocr review`` and return the parsed result.
+
+    ``background`` is optional Markdown context (the pull request discussion);
+    it is written to a temporary file and passed via ``--background-file``.
 
     Progress lines go to stderr by the tool's own design; we capture both
     streams so failures are explainable and stdout stays machine-clean.
@@ -138,65 +147,84 @@ def run_ocr(
     fd, tmp_name = tempfile.mkstemp(prefix="gitea-ocr-", suffix=".json")
     os.close(fd)
     output_path = Path(tmp_name)
-
-    command = build_command(ocr_bin, repo_dir, base, head, output_path, extra_args)
-    log("running: " + " ".join(command))
+    background_path: Path | None = None
 
     try:
-        proc = subprocess.run(
-            command,
-            cwd=str(repo_dir),
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-        )
-    except FileNotFoundError as exc:
-        output_path.unlink(missing_ok=True)
-        raise OcrError(
-            f"ocr executable not found: {ocr_bin!r}",
-            hint="install alibaba/open-code-review and make sure `ocr` is on PATH, "
-            "or pass --ocr-bin",
-        ) from exc
-    except subprocess.TimeoutExpired as exc:
-        output_path.unlink(missing_ok=True)
-        raise OcrError(
-            f"ocr review timed out after {timeout:g}s",
-            hint="increase --ocr-timeout or review a smaller range",
-        ) from exc
+        if background and background.strip():
+            fd, bg_name = tempfile.mkstemp(
+                prefix="gitea-ocr-background-", suffix=".md"
+            )
+            os.close(fd)
+            background_path = Path(bg_name)
+            background_path.write_text(background, encoding="utf-8")
 
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()
+        command = build_command(
+            ocr_bin,
+            repo_dir,
+            base,
+            head,
+            output_path,
+            extra_args,
+            background_file=background_path,
+        )
+        log("running: " + " ".join(command))
+
+        try:
+            proc = subprocess.run(
+                command,
+                cwd=str(repo_dir),
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+            )
+        except FileNotFoundError as exc:
+            raise OcrError(
+                f"ocr executable not found: {ocr_bin!r}",
+                hint="install alibaba/open-code-review and make sure `ocr` is on PATH, "
+                "or pass --ocr-bin",
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise OcrError(
+                f"ocr review timed out after {timeout:g}s",
+                hint="increase --ocr-timeout or review a smaller range",
+            ) from exc
+
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()
+            raise OcrError(
+                f"ocr review failed (exit {proc.returncode}): {detail[-800:]}",
+                hint="run the same `ocr review` command manually to see the full log",
+            )
+
+        payload: dict[str, Any] | None = None
+        if output_path.exists():
+            raw = output_path.read_text(encoding="utf-8").strip()
+            if raw:
+                try:
+                    payload = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    raise OcrError(f"could not parse ocr JSON output: {exc}") from exc
+
+        if payload is None:
+            stdout = (proc.stdout or "").strip()
+            if stdout:
+                try:
+                    payload = json.loads(stdout)
+                except json.JSONDecodeError as exc:
+                    raise OcrError(
+                        f"could not parse ocr stdout as JSON: {exc}"
+                    ) from exc
+        if payload is None:
+            raise OcrError("ocr produced no JSON output")
+        if not isinstance(payload, dict):
+            raise OcrError(
+                f"ocr JSON output must be an object, got {type(payload).__name__}",
+                hint="check the installed ocr version supports `--format json`",
+            )
+    finally:
         output_path.unlink(missing_ok=True)
-        raise OcrError(
-            f"ocr review failed (exit {proc.returncode}): {detail[-800:]}",
-            hint="run the same `ocr review` command manually to see the full log",
-        )
-
-    payload: dict[str, Any] | None = None
-    if output_path.exists():
-        raw = output_path.read_text(encoding="utf-8").strip()
-        if raw:
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError as exc:
-                output_path.unlink(missing_ok=True)
-                raise OcrError(f"could not parse ocr JSON output: {exc}") from exc
-    output_path.unlink(missing_ok=True)
-
-    if payload is None:
-        stdout = (proc.stdout or "").strip()
-        if stdout:
-            try:
-                payload = json.loads(stdout)
-            except json.JSONDecodeError as exc:
-                raise OcrError(f"could not parse ocr stdout as JSON: {exc}") from exc
-    if payload is None:
-        raise OcrError("ocr produced no JSON output")
-    if not isinstance(payload, dict):
-        raise OcrError(
-            f"ocr JSON output must be an object, got {type(payload).__name__}",
-            hint="check the installed ocr version supports `--format json`",
-        )
+        if background_path is not None:
+            background_path.unlink(missing_ok=True)
 
     result = parse_review_json(payload)
     result.command = command

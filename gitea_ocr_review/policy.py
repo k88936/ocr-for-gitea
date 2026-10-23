@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from typing import Any, Iterable, Mapping, Sequence
 
 from .ocr_runner import Finding
@@ -9,6 +10,13 @@ from .ocr_runner import Finding
 # Gitea review events (note: Gitea uses APPROVED, not GitHub's APPROVE).
 EVENT_APPROVE = "APPROVED"
 EVENT_REQUEST_CHANGES = "REQUEST_CHANGES"
+
+# A random whale meme, appended to every posted comment.
+MEME_COUNT = 40
+MEME_URL_TEMPLATE = (
+    "https://github.com/TreapGoGo/deepseek-whale-girl/blob/main/"
+    "site/assets/gallery/meme-{number:02d}.webp?raw=true"
+)
 
 SEVERITY_ORDER: dict[str, int] = {
     "info": 0,
@@ -25,6 +33,13 @@ _DECISION_ICON = {
     EVENT_APPROVE: "✅ Approved",
     EVENT_REQUEST_CHANGES: "⛔ Changes requested",
 }
+
+
+def random_meme(rng: random.Random | None = None) -> str:
+    """Return Markdown for one randomly selected whale meme image."""
+
+    number = (rng or random).randint(1, MEME_COUNT)
+    return f"![]({MEME_URL_TEMPLATE.format(number=number)})"
 
 
 def normalize_severity(value: str | None) -> str:
@@ -115,6 +130,7 @@ def build_review_body(
     result_meta: Mapping[str, Any] | None = None,
     inline_count: int = 0,
     max_rows: int = 100,
+    footer: str | None = None,
 ) -> str:
     """Render the markdown review summary (dry-run and ``--no-inline-comments``)."""
 
@@ -188,6 +204,10 @@ def build_review_body(
                 lines.append("```")
                 lines.append("")
 
+    if footer:
+        lines.append("")
+        lines.append(footer)
+
     return "\n".join(lines)
 
 
@@ -196,6 +216,7 @@ def build_inline_comments(
     *,
     max_comments: int = 25,
     head_paths: Iterable[str] | None = None,
+    footer: str | None = None,
 ) -> list[dict[str, Any]]:
     """Map OCR findings to Gitea ``CreatePullReviewComment`` payloads.
 
@@ -234,6 +255,9 @@ def build_inline_comments(
             body_lines.append("```")
             body_lines.append(suggestion.rstrip())
             body_lines.append("```")
+        if footer:
+            body_lines.append("")
+            body_lines.append(footer)
         comments.append(
             {
                 "path": finding.path,

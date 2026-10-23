@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .errors import GiteaError
+from .discussion import build_discussion_markdown
+from .errors import AppError, GiteaError
 from .gitea import GiteaClient
 from .gitrepo import (
     commit_exists,
@@ -27,6 +28,7 @@ from .policy import (
     build_inline_comments,
     build_review_body,
     decide_event,
+    random_meme,
 )
 from .runtime import Logger, Settings
 
@@ -165,6 +167,8 @@ def perform_review(
         f"(PR base {base_sha[:12]})"
     )
 
+    background = _discussion_background(client, owner, repo, index, pr, log)
+
     result = run_ocr(
         Path(repo_dir),
         diff_base,
@@ -172,6 +176,7 @@ def perform_review(
         ocr_bin=settings.ocr_bin,
         extra_args=settings.ocr_args,
         timeout=settings.ocr_timeout,
+        background=background,
         log=log,
     )
 
@@ -183,6 +188,7 @@ def perform_review(
         f"({reason}; {len(result.findings)} finding(s))"
     )
 
+    meme = random_meme()
     inline_comments: list[dict[str, Any]] = []
     if not options.no_inline_comments:
         head_paths = list_files(repo_dir, head_sha)
@@ -190,6 +196,7 @@ def perform_review(
             result.findings,
             max_comments=options.max_inline_comments,
             head_paths=head_paths,
+            footer=meme,
         )
 
     body = build_review_body(
@@ -205,6 +212,7 @@ def perform_review(
             "files_reviewed": result.summary.get("files_reviewed"),
         },
         inline_count=len(inline_comments),
+        footer=meme,
     )
 
     review: dict[str, Any] | None = None
@@ -252,6 +260,47 @@ def perform_review(
         review=review,
         dry_run=options.dry_run,
     )
+
+
+def _discussion_background(
+    client: GiteaClient,
+    owner: str,
+    repo: str,
+    index: int,
+    pr: dict[str, Any],
+    log: Logger,
+) -> str:
+    """Markdown context with the pull request's description and comments.
+
+    A failure here is not fatal: the review is still useful without the
+    discussion, so log the problem and fall back to the description alone.
+    """
+
+    issue_comments: list[dict[str, Any]] = []
+    review_comments: list[dict[str, Any]] = []
+
+    # Fetch each list separately: one failing lookup (missing scope, endpoint
+    # unsupported by the server) must not throw away the other one.
+    try:
+        issue_comments = client.list_issue_comments(owner, repo, index)
+    except AppError as exc:
+        log(f"{owner}/{repo}#{index}: could not fetch PR comments: {exc}")
+
+    try:
+        review_comments = client.list_review_comments(owner, repo, index)
+    except AppError as exc:
+        log(f"{owner}/{repo}#{index}: could not fetch review comments: {exc}")
+
+    background = build_discussion_markdown(
+        pr,
+        issue_comments=issue_comments,
+        review_comments=review_comments,
+    )
+    log(
+        f"{owner}/{repo}#{index}: background includes "
+        f"{len(issue_comments) + len(review_comments)} comment(s)"
+    )
+    return background
 
 
 def post_review(

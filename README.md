@@ -5,10 +5,12 @@ A small local command line app that turns
 into an automated **Gitea pull-request gate**:
 
 1. **Query** a Gitea review request (pull request) through the Gitea REST API.
-2. Run `ocr review --from <base> --to <head> --format json` on a local clone.
+2. Run `ocr review --from <base> --to <head> --format json` on a local clone,
+   passing the PR's discussion as `--background-file`.
 3. Turn the JSON findings into a verdict using a configurable policy.
 4. **Post** the verdict back to Gitea as an `APPROVED` or `REQUEST_CHANGES`
-   review carrying only code-side inline comments (no summary comment).
+   review carrying code-side inline comments (no summary comment), each with a
+   random whale meme.
 
 Authentication uses a **Gitea access token**. HTTP is handled by
 [`httpx`](https://www.python-httpx.org/) and local git operations by
@@ -107,7 +109,8 @@ never lands in process arguments or in `.git/config`. Secrets are redacted
 ### Creating a token in Gitea
 
 * **Web UI:** *Settings → Applications → Generate New Token*, select at least
-  the `write:repository` scope.
+  `write:repository` (to post reviews) and `read:issue` (to read the PR
+  discussion that is passed to OCR as background).
 * **CLI (inside the Gitea container/host):**
 
   ```console
@@ -286,8 +289,10 @@ or as a cron job / timer with `--once`:
 Gitea API ──GET /repos/{o}/{r}/pulls/{n}──► base.sha, head.sha, merge_base, clone_url
      │
      ├─ clone/fetch into a cache dir (token injected via GIT_CONFIG_*)
+     ├─ GET issue + review comments, render them as Markdown
      ├─ diff range = merge_base..head.sha   (matches the PR's three-dot diff)
      ├─ run: ocr review --repo DIR --from MERGE_BASE --to HEAD --format json
+     │       --background-file /tmp/gitea-ocr-background-XXXX.md
      ├─ parse comments[]  →  policy  →  APPROVED / REQUEST_CHANGES
      └─ POST /repos/{o}/{r}/pulls/{n}/reviews  {event, comments[]}
 
@@ -303,10 +308,20 @@ Notes:
 * Fork pull requests work: if the head commit is missing, the app fetches
   `refs/pull/<n>/head`, which Gitea exposes for every PR.
 * Inline comments are led by OpenCodeReview's severity (`**[critical]** …`),
-  followed by its text and its suggested change; we add no prose of our own.
-  They use Gitea's `new_position`
-  (1-based line in the new file); findings on files absent from the head commit
-  cannot be anchored and are dropped.
+  followed by its text and its suggested change, then one random image from the
+  [deepseek-whale-girl gallery](https://github.com/TreapGoGo/deepseek-whale-girl)
+  (`meme-01.webp` … `meme-40.webp`, chosen per review). They use Gitea's
+  `new_position` (1-based line in the new file); findings on files absent from
+  the head commit cannot be anchored and are dropped.
+* Before running OCR, the app fetches the PR description plus all conversation
+  comments (`/issues/{n}/comments`) and review-line comments. Gitea has no
+  endpoint listing line comments across a PR, so those are collected per review
+  (`/pulls/{n}/reviews` + `/pulls/{n}/reviews/{id}/comments`); the GitHub-style
+  `/pulls/{n}/comments` is tried first as a fast path. Everything is rendered as
+  Markdown and handed to `ocr review --background-file`. That lets the reviewer
+  see the discussion so far instead of re-raising points that were already
+  settled. Each lookup fails independently: a missing scope or unsupported
+  endpoint keeps the rest of the background instead of dropping all of it.
 * No summary comment is posted on the pull request. Gitea refuses a
   `REQUEST_CHANGES` review without a body, so that one carries the short reason
   (e.g. `1 finding(s) at or above severity critical/high`); approvals are
@@ -347,7 +362,7 @@ $ uv run pytest -q
 $ python -m unittest discover -s tests -t .
 ```
 
-85 tests cover token precedence, the httpx-based Gitea client, the
+113 tests cover token precedence, the httpx-based Gitea client, the
 GitPython-based git helpers, OCR JSON parsing, the decision policy, the polling
 state store and full fake-Gitea + fake-OCR pipelines for both `review` and
 `watch`. They also prove that the watch path issues **no** per-PR GET, that
