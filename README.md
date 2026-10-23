@@ -322,6 +322,8 @@ Notes:
   see the discussion so far instead of re-raising points that were already
   settled. Each lookup fails independently: a missing scope or unsupported
   endpoint keeps the rest of the background instead of dropping all of it.
+  `ocr` caps the background message at 8000 characters, so only the last 7890
+  are sent — the newest comments survive a long discussion.
 * No summary comment is posted on the pull request. Gitea refuses a
   `REQUEST_CHANGES` review without a body, so that one carries the short reason
   (e.g. `1 finding(s) at or above severity critical/high`); approvals are
@@ -362,7 +364,7 @@ $ uv run pytest -q
 $ python -m unittest discover -s tests -t .
 ```
 
-113 tests cover token precedence, the httpx-based Gitea client, the
+116 tests cover token precedence, the httpx-based Gitea client, the
 GitPython-based git helpers, OCR JSON parsing, the decision policy, the polling
 state store and full fake-Gitea + fake-OCR pipelines for both `review` and
 `watch`. They also prove that the watch path issues **no** per-PR GET, that

@@ -5,7 +5,13 @@ import unittest
 from pathlib import Path
 
 from gitea_ocr_review.errors import OcrError
-from gitea_ocr_review.ocr_runner import build_command, parse_review_json, run_ocr
+from gitea_ocr_review.ocr_runner import (
+    BACKGROUND_MAX_CHARS,
+    build_command,
+    clip_background,
+    parse_review_json,
+    run_ocr,
+)
 
 SAMPLE = {
     "status": "complete",
@@ -73,6 +79,19 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(cmd[-2:], ["--effort", "high"])
 
 
+class ClipBackgroundTests(unittest.TestCase):
+    def test_short_background_is_kept(self):
+        background = "# Discussion\n\nuse add()\n"
+        self.assertEqual(clip_background(background), background)
+
+    def test_long_background_keeps_the_tail(self):
+        background = "old discussion\n" * 1000 + "newest finding\n"
+        clipped = clip_background(background)
+        self.assertEqual(len(clipped), BACKGROUND_MAX_CHARS)
+        self.assertTrue(clipped.endswith("newest finding\n"))
+        self.assertTrue(clipped.startswith("_(earlier discussion truncated)_"))
+
+
 class RunOcrTests(unittest.TestCase):
     def _write_script(self, directory: Path, body: str) -> Path:
         path = directory / "fake_ocr"
@@ -114,6 +133,29 @@ class RunOcrTests(unittest.TestCase):
                 background="# Discussion\n\nuse add()\n",
             )
             self.assertEqual(seen.read_text(), "# Discussion\n\nuse add()\n")
+
+    def test_run_ocr_clips_long_background(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            seen = tmp_path / "seen.md"
+            script = self._write_script(
+                tmp_path,
+                "import shutil, sys\n"
+                "out = sys.argv[sys.argv.index('-o') + 1]\n"
+                f"open(out, 'w').write({json.dumps(SAMPLE)!r})\n"
+                "index = sys.argv.index('--background-file')\n"
+                f"shutil.copyfile(sys.argv[index + 1], {str(seen)!r})\n",
+            )
+            run_ocr(
+                tmp_path,
+                "a" * 40,
+                "b" * 40,
+                ocr_bin=str(script),
+                background="old discussion\n" * 1000 + "newest finding\n",
+            )
+            written = seen.read_text()
+            self.assertLessEqual(len(written), BACKGROUND_MAX_CHARS)
+            self.assertTrue(written.endswith("newest finding\n"))
 
     def test_run_ocr_failure_raises(self):
         with tempfile.TemporaryDirectory() as tmp:

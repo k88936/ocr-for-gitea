@@ -14,6 +14,20 @@ from .errors import OcrError
 
 Logger = Callable[[str], None]
 
+# ``ocr review`` caps the background message at 8000 characters. Stay a little
+# below that limit and drop the oldest conversation first: the newest part of
+# the discussion is what keeps a reviewer from re-raising settled points.
+BACKGROUND_MAX_CHARS = 7890
+
+
+def clip_background(background: str, limit: int = BACKGROUND_MAX_CHARS) -> str:
+    """Keep only the tail of ``background``, where the newest discussion is."""
+
+    if len(background) <= limit:
+        return background
+    marker = "_(earlier discussion truncated)_\n\n"
+    return marker + background[-(limit - len(marker)):]
+
 
 def _as_int(value: Any) -> int | None:
     if value is None or value == "":
@@ -138,6 +152,8 @@ def run_ocr(
 
     ``background`` is optional Markdown context (the pull request discussion);
     it is written to a temporary file and passed via ``--background-file``.
+    Only its last :data:`BACKGROUND_MAX_CHARS` characters are kept, because
+    ``ocr review`` rejects longer background messages.
 
     Progress lines go to stderr by the tool's own design; we capture both
     streams so failures are explainable and stdout stays machine-clean.
@@ -151,12 +167,18 @@ def run_ocr(
 
     try:
         if background and background.strip():
+            clipped = clip_background(background)
+            if len(clipped) < len(background):
+                log(
+                    f"background trimmed from {len(background)} to "
+                    f"{len(clipped)} characters (ocr limit)"
+                )
             fd, bg_name = tempfile.mkstemp(
                 prefix="gitea-ocr-background-", suffix=".md"
             )
             os.close(fd)
             background_path = Path(bg_name)
-            background_path.write_text(background, encoding="utf-8")
+            background_path.write_text(clipped, encoding="utf-8")
 
         command = build_command(
             ocr_bin,
