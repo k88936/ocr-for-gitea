@@ -102,7 +102,6 @@ def command_review(args: argparse.Namespace, config: dict[str, Any]) -> int:
         repo_dir=args.repo_dir,
         clone_url=args.clone_url,
         no_inline_comments=args.no_inline_comments,
-        max_inline_comments=args.max_inline_comments,
         dry_run=args.dry_run,
         force=args.force,
     )
@@ -160,7 +159,6 @@ def command_watch(args: argparse.Namespace, config: dict[str, Any]) -> int:
     state = ReviewState(state_path, persist=not args.dry_run)
     options = ReviewOptions(
         no_inline_comments=args.no_inline_comments,
-        max_inline_comments=args.max_inline_comments,
         dry_run=args.dry_run,
     )
     interval = max(0.0, float(args.interval))
@@ -586,7 +584,6 @@ def _add_review_knobs(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--ocr-timeout", dest="ocr_timeout", type=float, help="ocr timeout in seconds")
     parser.add_argument("--no-inline-comments", action="store_true", help="do not attach line comments")
-    parser.add_argument("--max-inline-comments", type=int, default=25, help="cap inline comments (default 25)")
     parser.add_argument("--dry-run", action="store_true", help="do not post anything to Gitea")
 
 

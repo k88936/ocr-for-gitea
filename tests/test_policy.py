@@ -84,10 +84,11 @@ class InlineCommentTests(unittest.TestCase):
         comments = build_inline_comments([finding(start_line=None, end_line=None)])
         self.assertEqual(comments, [])
 
-    def test_caps_comments(self):
-        findings = [finding(path=f"f{i}.py") for i in range(10)]
-        comments = build_inline_comments(findings, max_comments=3)
-        self.assertEqual(len(comments), 3)
+    def test_posts_every_finding_without_a_cap(self):
+        findings = [finding(path=f"f{i}.py") for i in range(60)]
+        comments = build_inline_comments(findings)
+        self.assertEqual(len(comments), 60)
+        self.assertEqual([c["path"] for c in comments], [f"f{i}.py" for i in range(60)])
 
     def test_meme_is_not_repeated_on_inline_comments(self):
         findings = [finding(path="a.py"), finding(path="b.py")]

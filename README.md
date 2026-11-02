@@ -178,7 +178,6 @@ gitea-ocr review --repo owner/repo --pr 123
 | `--ocr-bin PATH`, `--ocr-arg ...` | point at `ocr` / pass extra flags through |
 | `--ocr-timeout SECONDS` | kill `ocr` after this long |
 | `--no-inline-comments` | do not attach line comments; post the summary body instead |
-| `--max-inline-comments N` | cap inline comments (default 25) |
 | `--dry-run` | print the review without posting |
 | `--json` | emit a machine-readable summary |
 | `--force` | review even if the PR is not open |
@@ -256,7 +255,7 @@ gitea-ocr watch owner/repo --once          # single pass, cron/systemd friendly
 | `--pr-state open\|closed\|all` | which PRs to consider (default `open`) |
 
 It also accepts the review knobs (`--reject-on`,
-`--no-inline-comments`, `--max-inline-comments`, `--dry-run`, `--ocr-*`,
+`--no-inline-comments`, `--dry-run`, `--ocr-*`,
 `--cache-dir`). `--dry-run` reviews without posting and keeps state in memory
 only, so it never pollutes the on-disk state.
 
@@ -308,7 +307,9 @@ Notes:
 * Fork pull requests work: if the head commit is missing, the app fetches
   `refs/pull/<n>/head`, which Gitea exposes for every PR.
 * Inline comments are led by OpenCodeReview's severity (`**[critical]** …`),
-  followed by its text and its suggested change. They use Gitea's
+  followed by its text and its suggested change. Every anchorable finding is
+  posted — there is no per-review count cap — so a review never reports more
+  blocking findings than it actually attaches. They use Gitea's
   `new_position` (1-based line in the new file); findings on files absent from
   the head commit cannot be anchored and are dropped.
 * Before running OCR, the app fetches the PR description plus all conversation

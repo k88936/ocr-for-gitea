@@ -40,7 +40,6 @@ class ReviewOptions:
     repo_dir: Path | None = None
     clone_url: str | None = None
     no_inline_comments: bool = False
-    max_inline_comments: int = 25
     dry_run: bool = False
     force: bool = False
 
@@ -194,7 +193,6 @@ def perform_review(
         head_paths = list_files(repo_dir, head_sha)
         inline_comments = build_inline_comments(
             result.findings,
-            max_comments=options.max_inline_comments,
             head_paths=head_paths,
         )
 

@@ -129,7 +129,6 @@ def build_review_body(
     head: str,
     result_meta: Mapping[str, Any] | None = None,
     inline_count: int = 0,
-    max_rows: int = 100,
     footer: str | None = None,
 ) -> str:
     """Render the markdown review summary (dry-run and ``--no-inline-comments``)."""
@@ -173,7 +172,7 @@ def build_review_body(
         lines.append("")
         lines.append("| Severity | Location | Category | Finding |")
         lines.append("| --- | --- | --- | --- |")
-        for finding in findings[:max_rows]:
+        for finding in findings:
             location = finding.path or "?"
             if finding.line:
                 location += f":{finding.line}"
@@ -185,10 +184,8 @@ def build_review_body(
                     text=_escape_table(_shorten(finding.content)),
                 )
             )
-        if len(findings) > max_rows:
-            lines.append(f"| … | | | _{len(findings) - max_rows} more finding(s)_ |")
 
-        with_suggestions = [f for f in findings if f.suggestion_code.strip()][:10]
+        with_suggestions = [f for f in findings if f.suggestion_code.strip()]
         if with_suggestions:
             lines.append("")
             lines.append("<details><summary>Suggested changes</summary>")
@@ -214,7 +211,6 @@ def build_review_body(
 def build_inline_comments(
     findings: Sequence[Finding],
     *,
-    max_comments: int = 25,
     head_paths: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Map OCR findings to Gitea ``CreatePullReviewComment`` payloads.
@@ -226,8 +222,6 @@ def build_inline_comments(
     allowed = set(head_paths) if head_paths is not None else None
     comments: list[dict[str, Any]] = []
     for finding in findings:
-        if len(comments) >= max_comments:
-            break
         if not finding.path:
             continue
         if allowed is not None and finding.path not in allowed:
